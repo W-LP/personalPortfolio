@@ -1,0 +1,39 @@
+# 个人作品集网站 - 后端 systemd 服务
+# 使用方法:
+#   sudo cp portfolio.service /etc/systemd/system/portfolio.service
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now portfolio
+# 常用命令:
+#   systemctl status portfolio        # 查看状态
+#   journalctl -u portfolio -f        # 查看实时日志
+
+[Unit]
+Description=Portfolio Backend (Spring Boot 3)
+Documentation=https://spring.io/projects/spring-boot
+# MySQL 启动后再拉起后端
+After=network.target mysqld.service
+Wants=mysqld.service
+
+[Service]
+Type=simple
+# 宝塔站点默认用户 www；也可改用 root（不推荐）
+User=www
+Group=www
+# 后端 jar 所在目录
+WorkingDirectory=/www/wwwroot/portfolio/backend
+ExecStart=/usr/bin/java -Xms256m -Xmx512m -jar /www/wwwroot/portfolio/backend/app.jar
+# 通过环境变量覆盖数据库配置（与 application.yml 中的占位符对应）
+Environment=DB_HOST=127.0.0.1
+Environment=DB_PORT=3306
+Environment=DB_NAME=portfolio
+Environment=DB_USER=portfolio
+Environment=DB_PASSWORD=portfolio123
+# 失败自动重启
+Restart=always
+RestartSec=5
+# 优雅停机
+ExecStop=/bin/kill -s TERM $MAINPID
+TimeoutStopSec=30
+
+[Install]
+WantedBy=multi-user.target

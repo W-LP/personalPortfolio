@@ -1,0 +1,35 @@
+# 个人作品集网站 - 私厨 FastAPI (LangGraph Agent) systemd 服务
+# 使用方法:
+#   sudo cp portfolio-chief.service /etc/systemd/system/portfolio-chief.service
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now portfolio-chief
+# 常用命令:
+#   systemctl status portfolio-chief     # 查看状态
+#   journalctl -u portfolio-chief -f     # 查看实时日志
+
+[Unit]
+Description=Portfolio Personal Chief (FastAPI + LangGraph Agent)
+Documentation=https://fastapi.tiangolo.com/deployment/
+After=network.target
+
+[Service]
+Type=simple
+# 宝塔站点默认用户 www；须保证其对 /www/wwwroot/portfolio/chief 有读写权限（SQLite 会话库需要写）
+User=www
+Group=www
+# 私厨应用所在目录（含 chief/ 包与 .venv）
+WorkingDirectory=/www/wwwroot/portfolio/chief-fastapi
+# uvicorn 多 worker 不兼容 SQLite checkpointer，保持单 worker
+ExecStart=/www/wwwroot/portfolio/chief-fastapi/.venv/bin/python -m uvicorn chief.main:app --host 127.0.0.1 --port 8002 --workers 1
+# 日志输出到 journal（journalctl -u portfolio-chief -f 查看）
+StandardOutput=journal
+StandardError=journal
+# 失败自动重启
+Restart=always
+RestartSec=5
+# 优雅停机
+ExecStop=/bin/kill -s TERM $MAINPID
+TimeoutStopSec=30
+
+[Install]
+WantedBy=multi-user.target

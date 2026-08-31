@@ -1,0 +1,21 @@
+# ---- 构建产物 ----
+frontend/dist/
+backend/target/
+
+# ---- 依赖 ----
+frontend/node_modules/
+
+# ---- 本地构建缓存（本次本地验证使用，不入库）----
+.m2-repo/
+.m2/
+.npm-cache/
+
+# ---- IDE / 系统 ----
+.idea/
+.vscode/
+*.iml
+.DS_Store
+Thumbs.db
+
+# ---- 日志 ----
+*.log
