@@ -4,15 +4,15 @@
 # 2. 日志统一使用 chief.logger 的 personal_chief logger（原来误用 pip 的 logger 包）
 # @author 万立鹏 @date 2026-08-31
 import os
-import sqlite3
 from pathlib import Path
 
+import aiosqlite
 from dotenv import load_dotenv
 from langchain.agents import create_agent
 from langchain.chat_models import init_chat_model
 from langchain_tavily import TavilySearch
 from langchain_core.messages import HumanMessage, AIMessageChunk, AIMessage
-from langgraph.checkpoint.sqlite import SqliteSaver
+from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
 
 from chief.logger import logger
 
@@ -35,12 +35,17 @@ model = init_chat_model(
 )
 
 # 4. 初始化 checkpointer（SQLite 持久化会话记忆，绝对路径避免启动目录依赖）
+# 注意：agent.astream 为异步调用，必须使用 AsyncSqliteSaver（SqliteSaver 不支持异步会抛 NotImplementedError）
 DB_PATH = BASE_DIR / "db" / "personal_chief.db"
 DB_PATH.parent.mkdir(parents=True, exist_ok=True)
-connection = sqlite3.connect(DB_PATH, check_same_thread=False)
-checkpointer = SqliteSaver(connection)
-# 自动建表
-checkpointer.setup()
+checkpointer = AsyncSqliteSaver(aiosqlite.connect(DB_PATH))
+
+
+async def init_checkpointer():
+    """
+    应用启动时调用：异步建立连接并自动建表
+    """
+    await checkpointer.setup()
 
 # 5. Agent 系统提示词
 system_prompt = """
@@ -102,16 +107,16 @@ async def search_recipes(prompt: str, image: str, thread_id: str):
         yield "信息检索失败，试试看手动输入食物列表？"
 
 
-def clear_messages(thread_id: str):
+async def clear_messages(thread_id: str):
     """
     清空指定线程的会话记忆
     :param thread_id: 会话线程 ID
     """
     logger.info(f"清空历史消息，thread_id: {thread_id}")
-    checkpointer.delete_thread(thread_id)
+    await checkpointer.adelete_thread(thread_id)
 
 
-def get_messages(thread_id: str) -> list[dict[str, str]]:
+async def get_messages(thread_id: str) -> list[dict[str, str]]:
     """
     查询指定线程的会话历史
     :param thread_id: 会话线程 ID
@@ -120,14 +125,14 @@ def get_messages(thread_id: str) -> list[dict[str, str]]:
     logger.info(f"获取历史消息，thread_id: {thread_id}")
 
     # 根据 thread_id 查询 checkpoint
-    checkpoint = checkpointer.get({"configurable": {"thread_id": thread_id}})
+    checkpoint_tuple = await checkpointer.aget_tuple({"configurable": {"thread_id": thread_id}})
 
     # 如果不存在，返回空列表
-    if not checkpoint:
+    if not checkpoint_tuple or not checkpoint_tuple.checkpoint:
         return []
 
     # 安全获取 messages
-    channel_values = checkpoint.get("channel_values")
+    channel_values = checkpoint_tuple.checkpoint.get("channel_values")
     if not channel_values:
         return []
 

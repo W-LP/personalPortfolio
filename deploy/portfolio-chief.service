@@ -15,7 +15,7 @@ After=network.target
 [Service]
 Type=simple
 # 宝塔站点默认用户 www；须保证其对 /www/wwwroot/portfolio/chief 有读写权限（SQLite 会话库需要写）
-User=www
+User=www-
 Group=www
 # 私厨应用所在目录（含 chief/ 包与 .venv）
 WorkingDirectory=/www/wwwroot/portfolio/chief-fastapi

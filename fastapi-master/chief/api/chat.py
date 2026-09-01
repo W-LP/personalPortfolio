@@ -31,7 +31,7 @@ async def get_chat_messages(thread_id: str):
     """
     查询指定线程的历史消息
     """
-    messages = get_messages(thread_id)
+    messages = await get_messages(thread_id)
     return {"messages": messages}
 
 
@@ -41,5 +41,5 @@ async def clear_chat_messages(thread_id: str):
     清空指定线程的历史消息
     """
     logger.info(f"接口调用清空会话，thread_id: {thread_id}")
-    clear_messages(thread_id)
+    await clear_messages(thread_id)
     return {"success": True}
