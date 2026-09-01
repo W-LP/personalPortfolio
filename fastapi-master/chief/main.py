@@ -10,6 +10,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from chief.api import chat, oss
 from chief.agent import init_checkpointer
 from chief.logger import setup_logging, logger
+from students.api import router as student_router
 
 # 初始化日志配置
 setup_logging()
@@ -40,9 +41,10 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# 2. 挂载路由（统一前缀 /api/chief，与前端 Vite 代理规则对应）
+# 2. 挂载路由（统一前缀，与前端 Vite 代理规则对应）
 app.include_router(chat.router, prefix="/api/chief", tags=["对话"])
 app.include_router(oss.router, prefix="/api/chief", tags=["OSS直传"])
+app.include_router(student_router, prefix="/api/student-agent", tags=["AI学管"])
 
 
 @app.get("/api/chief/health")
