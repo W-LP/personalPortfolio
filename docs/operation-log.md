@@ -85,3 +85,15 @@
 
 - [新增] 私厨 FastAPI systemd 服务模板（沿用 portfolio.service 模式：www 用户、自动重启、日志入 journal；单 worker 兼容 SQLite checkpointer） | `deploy/portfolio-chief.service`
 - [修改] Nginx 站点配置新增 /api/chief/ 反代至 8002 端口：proxy_buffering off（SSE 流式关键）、读超时放宽 300s（Agent 检索耗时长）、HTTP/1.1 长连接 | `deploy/portfolio-nginx.conf`
+
+## 2026-09-01
+
+- [修复] 私厨流式对话假性阻塞：AI 回复内容到达后不逐字显示、流结束时一次性出现 | `frontend/src/components/PersonalChief.vue`
+  - 根因：sendMessage 中先创建普通对象 reply 再 push 进 messages 数组，流式追加时仍持有原始对象引用修改 content，Vue 3 中直接改原始对象不触发视图更新，直到 finally 中 sending=false 才触发一次重渲染
+  - 修复：push 后从响应式数组取回 Proxy 引用（`messages.value[messages.value.length - 1]`）再追加流式内容
+  - 后端 `/api/chief/chat/stream`（agent.astream 逐 token yield）与前端 fetch reader 读取链路本身均为真流式，无需改动
+- [修复] AI 回复中的食谱参考图破图无法展示 | `frontend/src/md.js`
+  - 根因：图床（百度百科 bkimg.cdn.bcebos.com、下厨房 i2.chuimg.com、百度图片 t13/t14.baidu.com 等）均有 Referer 防盗链，浏览器从 localhost:5174 引用被 403 拒绝
+  - 修复：img 标签增加 `referrerpolicy="no-referrer"` 去掉 Referer 绕过防盗链；http 图片升级为 https（避免部署 HTTPS 后被混合内容拦截）；增加 onerror 兜底隐藏破图
+  - 定位方式：终端网络受限无法调接口，改从 SQLite checkpoint 原始字节提取真实图片 URL 确认图床域名；node 本地验证渲染输出（markdown 图片/裸链接两种路径）
+  - 清理临时调试脚本 check_imgs.py、check_imgs_db.py、test-md.mjs
