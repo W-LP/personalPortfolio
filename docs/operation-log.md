@@ -114,3 +114,7 @@
   - Spring Boot：TeacherController 提供 /teacher/register（注册即登录）、/teacher/login、/teacher/check（token 校验）；密码摘要 PasswordUtil（SHA-256：账号+密码+pepper）；JWT 签发/校验 JwtUtil（手写 HMAC-SHA256，JDK 标准库零新增依赖，secret 可用环境变量 JWT_SECRET 覆盖）；错误码 STU2001/2002/2003；登录失败统一提示避免账号枚举 | `TeacherController.java`、`TeacherServiceImpl.java`、`JwtUtil.java`、`PasswordUtil.java`、`StudentResultCodeEnum.java`
   - 前端：StudentManager.vue 未登录显示登录/注册卡片（tab 切换），登录态持久化 localStorage（刷新自动恢复）；Agent 会话线程按教师隔离（thread_id 键 = student_thread_id_{teacherId}），退出登录清除该教师记忆；顶栏显示教师名 + 退出按钮 | `StudentManager.vue`
   - 验证：`mvn -o compile` BUILD SUCCESS、`npm run build` 构建通过；需执行 teacher 建表 SQL 并重启 Spring Boot 生效
+- [修复] 访问 #students 页面全空白 | `frontend/src/components/StudentManager.vue`
+  - 根因：未登录时 teacher.value 为 null，setup 初始化无条件调用 threadKey()（内部读取 teacher.value.id）抛出 TypeError，组件渲染失败导致页面空白
+  - 修复：线程 ID 初始化增加判空，仅已登录时读取/生成
+  - 验证：`npm run build` 构建通过
