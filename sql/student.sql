@@ -40,3 +40,16 @@ CREATE TABLE `studentscore` (
   KEY `idx_score_studentid` (`studentid`),
   KEY `idx_score_examname` (`examname`)
 ) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4 COLLATE = utf8mb4_unicode_ci COMMENT = '学生成绩表';
+
+-- 3. 教师账号表（AI 学管登录/注册，密码存 SHA-256 加盐摘要）
+DROP TABLE IF EXISTS `teacher`;
+CREATE TABLE `teacher` (
+  `id`         BIGINT       NOT NULL AUTO_INCREMENT COMMENT '主键',
+  `username`   VARCHAR(20)  NOT NULL COMMENT '登录账号',
+  `password`   VARCHAR(64)  NOT NULL COMMENT '密码摘要（SHA-256 加盐）',
+  `realname`   VARCHAR(50)  DEFAULT NULL COMMENT '教师姓名',
+  `createtime` DATETIME     DEFAULT NULL COMMENT '创建时间',
+  `updatetime` DATETIME     DEFAULT NULL COMMENT '更新时间',
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uk_teacher_username` (`username`)
+) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4 COLLATE = utf8mb4_unicode_ci COMMENT = '教师账号表';

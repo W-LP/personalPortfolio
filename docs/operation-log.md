@@ -104,3 +104,13 @@
   - FastAPI 学管 Agent（students 包）：office_parser.py 以标准库 zipfile+xml 解析 xlsx/docx（零新增依赖，沙箱无法联网装 openpyxl/python-docx）；parser.py 图片走 DeepSeek 多模态提取表格；agent.py LangGraph create_agent 挂 6 个工具（query_students/list_students/save_students/remove_students/save_scores/list_scores）经 httpx 调 Spring Boot /api 下接口（地址 STUDENT_API_BASE 环境变量可配，默认 http://127.0.0.1:9096/api）；api.py 暴露 POST /api/student-agent/agent（multipart：file+text）| `students/office_parser.py`、`students/parser.py`、`students/agent.py`、`students/api.py`、`chief/main.py`
   - 前端：新增 StudentManager.vue 全屏页（#students hash 路由）：📎 上传 word/excel/图片/csv 即时交 Agent、文字指令对话、Agent 回复 markdown 渲染、右侧学生名单面板（Agent 修改数据后自动刷新，直连 Spring Boot）；App.vue 增加首页「AI 学管」卡片与 #students 路由分支；vite.config.js 增加 '/api/student-agent' → 8002 代理（置于 '/api' 之前，Spring Boot 的 /api/students 走通用 /api → 9096，二者不冲突）| `StudentManager.vue`、`App.vue`、`vite.config.js`
   - 验证：Spring Boot `mvn -o compile` BUILD SUCCESS（JAVA_HOME 用 jdk-21）；office_parser 用标准库构造最小 xlsx/docx 解析验证通过；py_compile 语法检查通过；`npm run build` 构建通过；FastAPI/MySQL 服务需重启后生效
+- [修改] AI 学管接口改为流式输出并增加会话记忆 | `fastapi-master/students/agent.py`、`fastapi-master/students/api.py`、`fastapi-master/chief/main.py`、`frontend/src/components/StudentManager.vue`
+  - 流式：students/api.py 端点由 POST /agent（一次性 JSON）改为 POST /stream（StreamingResponse，media_type=text/event-stream，X-Accel-Buffering: no），新增必填 Form 参数 thread_id；agent.py 新增 stream_student_agent 异步生成器，agent.astream(stream_mode="messages") 逐 token yield
+  - 记忆：create_agent 挂 AsyncSqliteSaver checkpointer（独立库 chief/db/student_manager.db，绝对路径），按 thread_id 持久化多轮对话；main.py lifespan 增加 init_student_checkpointer()
+  - 前端：StudentManager.vue 改用 fetch reader.read() 流式追加渲染；thread_id 持久化到 localStorage（刷新页面记忆不丢）；顶栏新增「新对话」按钮（重置 thread_id 清空记忆）
+  - 验证：py_compile 语法检查通过、`npm run build` 构建通过；需重启 FastAPI 服务生效
+- [新增] AI 学管教师注册/登录功能（角色：教师） | `sql/student.sql`、`backend/.../student/**`、`backend/.../basic/util/**`、`frontend/src/components/StudentManager.vue`
+  - 建表：teacher（username 唯一索引、password 存 SHA-256 加盐摘要、realname） | `sql/student.sql`
+  - Spring Boot：TeacherController 提供 /teacher/register（注册即登录）、/teacher/login、/teacher/check（token 校验）；密码摘要 PasswordUtil（SHA-256：账号+密码+pepper）；JWT 签发/校验 JwtUtil（手写 HMAC-SHA256，JDK 标准库零新增依赖，secret 可用环境变量 JWT_SECRET 覆盖）；错误码 STU2001/2002/2003；登录失败统一提示避免账号枚举 | `TeacherController.java`、`TeacherServiceImpl.java`、`JwtUtil.java`、`PasswordUtil.java`、`StudentResultCodeEnum.java`
+  - 前端：StudentManager.vue 未登录显示登录/注册卡片（tab 切换），登录态持久化 localStorage（刷新自动恢复）；Agent 会话线程按教师隔离（thread_id 键 = student_thread_id_{teacherId}），退出登录清除该教师记忆；顶栏显示教师名 + 退出按钮 | `StudentManager.vue`
+  - 验证：`mvn -o compile` BUILD SUCCESS、`npm run build` 构建通过；需执行 teacher 建表 SQL 并重启 Spring Boot 生效

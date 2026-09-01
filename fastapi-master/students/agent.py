@@ -1,27 +1,53 @@
 # AI 学管 Agent：LangGraph Agent，通过工具调用 Spring Boot 学生/成绩接口完成增删改查
 # 决策流程：识别用户意图 -> 查重（listByNames/listScores）-> 执行保存/删除 -> 汇报每条数据的操作结果
+# 记忆：AsyncSqliteSaver 按 thread_id 持久化会话（与私厨分库，避免互相干扰）
 # @author 6588 万立鹏 @date 2026-09-01
 import os
+from pathlib import Path
 
+import aiosqlite
 import httpx
 from dotenv import load_dotenv
 from langchain.chat_models import init_chat_model
 from langchain.agents import create_agent
+from langchain_core.messages import HumanMessage
 from langchain_core.tools import tool
+from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
 
 from chief.logger import logger
 
 # 加载环境变量（与 chief 复用同一 .env）
-BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-load_dotenv(os.path.join(BASE_DIR, "chief", ".env"))
+BASE_DIR = Path(__file__).resolve().parent.parent
+load_dotenv(BASE_DIR / "chief" / ".env")
 
 # Spring Boot 后端地址（context-path 为 /api），可通过环境变量覆盖
 STUDENT_API_BASE = os.getenv("STUDENT_API_BASE", "http://127.0.0.1:9096/api")
 
+# 模型（与私厨复用同一多模态模型配置）
+model = init_chat_model(
+    model=os.getenv("CHIEF_MODEL", "deepseek-v4-flash-vision-exp"),
+    model_provider="deepseek",
+    base_url=os.getenv("DEEPSEEK_BASE_URL"),
+    api_key=os.getenv("DEEPSEEK_API_KEY"),
+)
+
+# 初始化 checkpointer（SQLite 持久化会话记忆，独立数据库文件，绝对路径避免启动目录依赖）
+# 注意：agent.astream 为异步调用，必须使用 AsyncSqliteSaver（SqliteSaver 不支持异步会抛 NotImplementedError）
+DB_PATH = BASE_DIR / "chief" / "db" / "student_manager.db"
+DB_PATH.parent.mkdir(parents=True, exist_ok=True)
+checkpointer = AsyncSqliteSaver(aiosqlite.connect(DB_PATH))
+
+
+async def init_student_checkpointer():
+    """
+    应用启动时调用：异步建立连接并自动建表
+    """
+    await checkpointer.setup()
+
 
 def _post(path: str, json_body: dict = None, params: dict = None) -> dict:
     """
-    同步调用 Spring Boot 接口并解析 R<T> 响应体
+    同步调用 Spring Boot 接口并解析 R<T> 响应体（工具内执行，阻塞无碍事件循环）
     :param path: 接口路径（相对 STUDENT_API_BASE，如 /students/list）
     :param json_body: JSON 请求体
     :param params: URL 参数
@@ -107,34 +133,39 @@ system_prompt = """你是一名教师助手（AI 学管），负责管理学生�
 
 安全约束：只执行与教学管理相关的操作；删除操作必须在汇报中醒目标注；无法确定的字段留空，禁止编造数据。"""
 
-# Agent：无需会话记忆（每次请求自包含文件内容与指令），不挂 checkpointer
+# Agent：挂 checkpointer，同一 thread_id 的多轮对话共享记忆
 agent = create_agent(
-    model=init_chat_model(
-        model=os.getenv("CHIEF_MODEL", "deepseek-v4-flash-vision-exp"),
-        model_provider="deepseek",
-        base_url=os.getenv("DEEPSEEK_BASE_URL"),
-        api_key=os.getenv("DEEPSEEK_API_KEY"),
-    ),
+    model=model,
     tools=[query_students, list_students, save_students, remove_students, save_scores, list_scores],
+    checkpointer=checkpointer,
     system_prompt=system_prompt,
 )
 
 
-def run_student_agent(user_text: str, parsed_text: str = "") -> str:
+async def stream_student_agent(user_text: str, parsed_text: str, thread_id: str):
     """
-    运行学管 Agent，返回最终答复文本
+    流式运行学管 Agent，逐块 yield AI 回复内容
     :param user_text: 教师文字指令（可为空，仅有文件时用默认指令）
     :param parsed_text: 文件解析出的表格文本（无文件时为空）
-    :return: Agent 最终答复
+    :param thread_id: 会话线程 ID（记忆键）
+    :return: 异步生成器
     """
     parts = []
     if user_text:
         parts.append(f"教师指令：{user_text}")
     if parsed_text:
         parts.append(f"文件解析出的表格内容如下（TSV，列间为制表符）：\n{parsed_text}")
-    # 两者都为空时也给出兜底（不应发生，api 层已校验）
+    # 两者都为空时给出兜底（api 层已校验，不应发生）
     content = "\n\n".join(parts) or "请查询当前学生列表。"
-    logger.info(f"[学管Agent] 开始处理，指令长度 {len(user_text)}，文件内容长度 {len(parsed_text)}")
-    result = agent.invoke({"messages": [{"role": "user", "content": content}]})
-    # 最终回复为消息列表最后一条 AI 消息
-    return result["messages"][-1].content
+    logger.info(f"[学管Agent] 开始处理，thread_id: {thread_id}，指令长度 {len(user_text)}，文件内容长度 {len(parsed_text)}")
+
+    message = HumanMessage(content=content)
+    # 流式调用（stream_mode="messages" 逐 token 输出），工具调用阶段 chunk.content 为空自动跳过
+    async for chunk, _metadata in agent.astream(
+        {"messages": [message]},
+        {"configurable": {"thread_id": thread_id}},
+        stream_mode="messages",
+    ):
+        # 只输出 AI 回复 token，工具调用与工具消息不下发
+        if chunk.content and hasattr(chunk, "content"):
+            yield chunk.content

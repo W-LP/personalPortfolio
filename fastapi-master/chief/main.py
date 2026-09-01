@@ -10,6 +10,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from chief.api import chat, oss
 from chief.agent import init_checkpointer
 from chief.logger import setup_logging, logger
+from students.agent import init_student_checkpointer
 from students.api import router as student_router
 
 # 初始化日志配置
@@ -20,7 +21,8 @@ setup_logging()
 async def lifespan(app: FastAPI):
     """应用生命周期：启动时初始化 SQLite 异步 checkpointer（建表/建连接）"""
     await init_checkpointer()
-    logger.info("checkpointer 初始化完成")
+    await init_student_checkpointer()
+    logger.info("checkpointer 初始化完成（私厨 + 学管）")
     yield
 
 
