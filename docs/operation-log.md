@@ -118,3 +118,40 @@
   - 根因：未登录时 teacher.value 为 null，setup 初始化无条件调用 threadKey()（内部读取 teacher.value.id）抛出 TypeError，组件渲染失败导致页面空白
   - 修复：线程 ID 初始化增加判空，仅已登录时读取/生成
   - 验证：`npm run build` 构建通过
+- [修改] 「AI 学管」更名「教师分身」：Agent 身份改为登录教师分身 + CODEX 风格 UI + 教师任教字段 | `sql/student.sql`、`backend/.../student/**`、`fastapi-master/students/**`、`frontend/src/components/StudentManager.vue`、`frontend/src/App.vue`
+  - 数据库：teacher 表新增 subject（任教科目）、classname（任教班级）、isclassteacher（是否班主任，0否1是），含历史库 ALTER 升级语句 | `sql/student.sql`
+  - Spring Boot：Teacher 实体 / TeacherRegisterDTO / TeacherVO 同步新增三字段，注册时落库 | `Teacher.java`、`TeacherRegisterDTO.java`、`TeacherVO.java`、`TeacherServiceImpl.java`
+  - FastAPI：system_prompt 身份改为「登录教师的分身」（第一人称处理班级事务，覆盖学情分析/健康提醒/家长沟通等）；/stream 新增 teacher_name/subject/class/head Form 参数，身份块随消息注入 Agent | `students/agent.py`、`students/api.py`
+  - 前端：全局更名「教师分身 // 班级事务中心」，UI 重做为 CODEX 极简风（浅色底 #f7f7f5、白卡片、细边框、绿色点缀 #10a37f、行式消息布局、示例指令 chip）；注册表单新增任教科目/任教班级/班主任勾选；顶栏展示教师身份徽章（姓名·科目·班级·班主任）；请求携带教师身份供分身注入 | `StudentManager.vue`、`App.vue`
+  - 验证：`mvn -o compile` BUILD SUCCESS、py_compile 通过、`npm run build` 构建通过；需执行 teacher 表升级 SQL 并重启 Spring Boot 与 FastAPI 生效
+- [修改] 学生表新增届/班级字段、性格改多行文本 | `sql/student.sql`、`backend/.../student/entity/Student.java`、`backend/.../student/service/impl/StudentServiceImpl.java`、`fastapi-master/students/agent.py`、`frontend/src/components/StudentManager.vue`
+  - 数据库：student 表新增 cohort（届，如 2026届）、classname（班级），personality 由 VARCHAR(500) 改为 TEXT（多行文本），含历史库 ALTER 升级语句 | `sql/student.sql`
+  - Spring Boot：Student 实体新增 cohort/className 字段；批量保存更新分支补充两字段的空值保护（空字段不覆盖原值） | `Student.java`、`StudentServiceImpl.java`
+  - FastAPI：system_prompt 字段映射补充 届->cohort、班级->classname，性格标注多行文本 | `students/agent.py`
+  - 前端：学生名单面板列调整为 姓名/性别/年龄/班级/届 | `StudentManager.vue`
+  - 验证：`mvn -o compile` BUILD SUCCESS、py_compile 通过、`npm run build` 构建通过；需执行 student 表升级 SQL 并重启 Spring Boot 生效
+- [修改] 附件改为暂存待发送 + 分身支持「更新我的信息」 | `backend/.../student/**`、`fastapi-master/students/**`、`frontend/src/components/StudentManager.vue`
+  - Spring Boot：新增 POST /teacher/update（TeacherUpdateDTO：teacherId 必填 + 姓名/科目/班级/班主任选填，空字段不修改）与 GET /teacher/detail（按 teacherId 查详情） | `TeacherUpdateDTO.java`、`TeacherController.java`、`ITeacherService.java`、`TeacherServiceImpl.java`
+  - FastAPI：新增 update_teacher_profile 工具（teacher_id 经 RunnableConfig 运行时注入，仅提交教师明确要改的字段，modify_head 控制班主任变更）；system_prompt 补充「更新我的信息」处理流程；/stream 新增 teacher_id Form 参数并传入 astream config | `students/agent.py`、`students/api.py`
+  - 前端：选择附件后仅暂存（输入区显示待发送 chip，可移除），补充说明后点击发送一起提交；发送 FormData 携带 teacher_id；对话完成后调用 /teacher/detail 回刷教师档案（顶栏徽章与 localStorage 同步更新） | `StudentManager.vue`
+  - 验证：`mvn -o compile` BUILD SUCCESS、py_compile 通过、`npm run build` 构建通过；需重启 Spring Boot 与 FastAPI 生效
+- [修复] 输入区待发送附件与输入框重叠错位 | `frontend/src/components/StudentManager.vue`
+  - 根因：.cx-input-inner 为横向 flex，附件 chip 与输入行被挤成同一行
+  - 修复：容器改为纵向 flex（chip 独占一行在上方，输入行在下），textarea 增加 min-height
+  - 验证：`npm run build` 构建通过
+- [修复] 注册表单任教科目/任教班级两列溢出卡片 | `frontend/src/components/StudentManager.vue`
+  - 根因：grid 列 1fr 受 input 固有 min-width 撑破，右列溢出卡片边界
+  - 修复：列宽改 minmax(0, 1fr)、label 限 min-width:0、输入框 width:100% + box-sizing:border-box
+  - 验证：`npm run build` 构建通过
+- [修改] 学生届/年级/班级字段数字化 | `sql/student.sql`、`backend/.../student/**`、`fastapi-master/students/agent.py`、`frontend/src/components/StudentManager.vue`
+  - 数据库：student 表 `cohort` 改 INT、新增 `grade` INT（年级）、`classname` 改为 `classnum` INT（班级），附历史库 ALTER 升级语句
+  - Spring Boot：实体/DTO/VO 同步新增 cohort/grade/classnum Integer 字段；批量保存更新分支空值保护同步（年级/班级未提供不覆盖）
+  - FastAPI：save_students/list_students 工具描述与 system_prompt 字段映射同步（届/年级/班级均数字，无法量化留空禁止编造）
+  - 前端：名单表格列改为 姓名/性别/年级/班级/届（数字渲染）
+  - 验证：`mvn -o compile` BUILD SUCCESS、py_compile 通过、`npm run build` 构建通过；需执行 student 表升级 SQL 并重启 Spring Boot 生效
+- [修改] 教师年级/班级拆分为数字字段 + 注册信息必填 | `sql/student.sql`、`backend/.../student/**`、`fastapi-master/students/**`、`frontend/src/components/StudentManager.vue`
+  - 数据库：teacher 表 `classname` VARCHAR 拆分为 `grade` INT（任教年级）+ `classnum` INT（任教班级），附历史库 ALTER 升级语句
+  - Spring Boot：实体/VO 同步；TeacherRegisterDTO 姓名/科目改 @NotBlank、年级/班级 @NotNull 数字必填；TeacherUpdateDTO 年级/班级数字选填；ServiceImpl 注册与更新同步
+  - FastAPI：update_teacher_profile 工具参数改 grade/classnum 数字；身份注入块分列任教年级/任教班级；/stream Form 参数 teacher_class 改 teacher_grade/teacher_classnum
+  - 前端：注册表单姓名/科目/年级/班级全部必填（红色星号标记 + 提交前校验），年级/班级为数字输入框；徽章显示如「万老师 · 数学 · 3年2班 · 班主任」；FormData 同步新参数；数字输入框样式补齐
+  - 验证：`mvn -o compile` BUILD SUCCESS、py_compile 通过、`npm run build` 构建通过；需执行 teacher 表升级 SQL 并重启 Spring Boot 生效

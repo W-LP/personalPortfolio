@@ -17,13 +17,25 @@ MAX_FILE_SIZE = 20 * 1024 * 1024
 async def student_agent_stream(
     text: str = Form(default=""),
     thread_id: str = Form(...),
+    teacher_id: str = Form(default=""),
+    teacher_name: str = Form(default=""),
+    teacher_subject: str = Form(default=""),
+    teacher_grade: str = Form(default=""),
+    teacher_classnum: str = Form(default=""),
+    teacher_head: str = Form(default="0"),
     file: UploadFile | None = File(default=None),
 ):
     """
-    学管 Agent 流式入口：文件（word/excel/图片）与文字指令至少提供其一，
-    Agent 自动解析内容并调用 Spring Boot 接口完成增删改查，流式返回处理汇报
+    教师分身流式入口：文件（word/excel/图片）与文字指令至少提供其一，
+    Agent 以登录教师的分身身份处理班级事务，流式返回处理汇报
     :param text: 教师文字指令，可为空
     :param thread_id: 会话线程 ID（记忆键，前端持久化）
+    :param teacher_id: 教师ID（"更新我的信息"等工具的运行时身份）
+    :param teacher_name: 教师姓名（分身身份注入）
+    :param teacher_subject: 任教科目
+    :param teacher_grade: 任教年级（数字）
+    :param teacher_classnum: 任教班级（数字）
+    :param teacher_head: 是否班主任（"1"是 "0"否）
     :param file: 上传文件，可为空
     """
     has_file = file is not None and bool(file.filename)
@@ -47,11 +59,21 @@ async def student_agent_stream(
             logger.error(f"[学管Agent] 文件解析失败: {e}")
             raise HTTPException(status_code=400, detail="文件解析失败，请检查文件内容")
 
-    logger.info(f"[学管Agent] 收到请求，thread_id: {thread_id}，file: {file.filename if has_file else '无'}，指令: {text[:100]}")
+    logger.info(f"[教师分身] 收到请求，thread_id: {thread_id}，file: {file.filename if has_file else '无'}，指令: {text[:100]}")
+
+    # 教师身份信息（分身设定，随消息注入 Agent；id 供 update_teacher_profile 工具使用）
+    teacher_info = {
+        "id": teacher_id.strip(),
+        "name": teacher_name.strip(),
+        "subject": teacher_subject.strip(),
+        "grade": int(teacher_grade) if teacher_grade.strip().isdigit() else None,
+        "classnum": int(teacher_classnum) if teacher_classnum.strip().isdigit() else None,
+        "is_head": teacher_head == "1",
+    }
 
     # 流式返回：文件解析已在生成器外完成，Agent 执行中的异常只能中断流
     return StreamingResponse(
-        stream_student_agent(text.strip(), parsed_text, thread_id),
+        stream_student_agent(text.strip(), parsed_text, thread_id, teacher_info),
         media_type="text/event-stream",
         # 禁用各级缓冲，保证流式实时下发（X-Accel-Buffering 供 Nginx 反代场景）
         headers={
